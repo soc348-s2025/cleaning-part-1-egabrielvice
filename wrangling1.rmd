@@ -39,40 +39,23 @@ preface which ends on line 182.
 Then from 192 to 260 there is a table of contents with any blank lines. 
 Also * in the title indicates "for younger children." 
 
-I would like to separate each of the stories
+I would like to separate each of the stories.
 
 Using this information, I can subset the data.
 
-```{r}
-
-table_of_contents <- quakersaints[190:260,] 
-# Remove blank lines
-table_of_contents <- table_of_contents |> filter(text != "")
-table_of_contents$text
-```
-
 What do you notice about the table of contents? 
 I see at least 3 issues.
+Looking at the table of contents, I see three issues: numbers in titles, asterisks (*), and extra whitespace around some titles. 
 
 ```{r}
-table_of_contents <- table_of_contents |>
-                     mutate(younger = substr(text, 1, 1) == "*")
-```
-
-
-```{r}
-# Remove numbers (could also use "[0-9]+")
-table_of_contents <- table_of_contents |> 
-  mutate(text =gsub("[[:digit:]]+", "", text))
-# Deal with a special case
-table_of_contents <- table_of_contents |>
-  mutate(text = sub("_page_ vii", "", text, fixed = TRUE))
-# Remove *
-table_of_contents <- table_of_contents |> 
-  mutate(text =sub("*", "", text, fixed=TRUE))
-# Remove extra white space
-table_of_contents <- table_of_contents |> 
-  mutate(text =trimws(text))
+table_of_contents <- quakersaints[190:260, ] |> 
+  filter(text != "") |> 
+  mutate(
+    younger = str_starts(text, "\\*"),
+    text = str_remove_all(text, "[[:digit:]]+|\\*"),
+    text = str_replace(text, "_page_ vii", ""),
+    text = trimws(text)
+  )
 table_of_contents$text
 ```
 
@@ -90,13 +73,8 @@ Also
  are different than the other sections so we may want to come back
  and handle them. 
 
-
 I'm going to cut down the quakersaints data so that it just contains
 text after the table of contents and list of illustrations. 
-
-```{r}
-quakersaints_trimmed <- quakersaints[290:nrow(quakersaints), ]
-```
 
 I'll also add a variable to represent the line number in the trimmed
 data. 
@@ -104,17 +82,11 @@ As usual there are many ways to do this, I'll use the base method so
 you see it , but `mutate(id = row_number())` will also work.
 
 ```{r}
-quakersaints_trimmed$row_number <- seq.int(nrow(quakersaints_trimmed))
+quakersaints_trimmed <- quakersaints[290:nrow(quakersaints), ] |> 
+  mutate(row_number = row_number())
 ```
 
 Let's find the chapter titles in the text.
-
-```{r}
-title_locations <- 
-  quakersaints_trimmed |> 
-  filter(text %in% table_of_contents$text)
-title_locations
-```
 
 ```{r}
 title_locations <- 
@@ -132,11 +104,9 @@ table_of_contents |> left_join(quakersaints_trimmed,
   table_of_contents
 ```
 
-
-
-
 What's the problem now?   
 Go back and look at the text. 
+The join is creating extra matches because some titles appear more than once, causing repeated entries in the merged dataset and affecting the structure of the data.
 
 
 We can use this information to say what kind of text each line is. 
@@ -144,6 +114,9 @@ The case_when() function is useful when we have complicated if then/else if/
 else if .../else situations.
 
 ```{r}
+if (!"row_number" %in% colnames(table_of_contents)) {
+  table_of_contents <- table_of_contents |> mutate(row_number = row_number())
+}
 title_locations <- 
   quakersaints_trimmed |> 
   mutate(text = trimws(text)) |>
@@ -164,11 +137,6 @@ title_locations <-
 title_locations
 ```
 
-
-
-```{r}
-
-```
 So now I know where my stories and epigraphs start and the type of
 text.   But 
 I need to pull this back into the full data set and 
@@ -182,16 +150,11 @@ we will fill that using the title.
 
 
 ```{r}
-
-quakersaints_trimmed |> 
+quakersaints_trimmed <- quakersaints_trimmed |> 
   left_join(title_locations, by = c("row_number", "gutenberg_id")) |>
-  # We get text.y and text.x because text is in both data frames,
-  # but not in the by vector.
-  rename(title = text.y, text = text.x) |>
-  mutate(text_type = case_when(is.na(text_type) ~ "Text",
-                               TRUE ~ text_type)) |>
-  fill(title) |> fill(section_type) |> fill(younger) -> quakersaints_trimmed
-
+  rename(title = text.y, text = text.x) |>  
+  mutate(text_type = coalesce(text_type, "Text")) |>
+  fill(title, section_type, younger)
 ```
 
 
@@ -231,15 +194,20 @@ quakersaints_long |> count(word, sort = TRUE) |> head(20)
 
 Looking these over, what should I drop?  How could I have done this 
 earlier? 
+Looking at the top 20 words, I notice that NA values appear in the list. To clean this up, I should drop NA values. I could have done this earlier by filtering out missing values before counting words, ensuring that only valid words are included in the results.
 
 ```{r}
-quakersaints_long <- quakersaints_long |> filter (is.na(word) == FALSE)
-quakersaints_long |> count(word, sort = TRUE) |> head(20)
-quakersaints_long |> group_by(section_type) |> count(word, sort = TRUE) |>
+quakersaints_long |> 
+  group_by(section_type) |> 
+  count(word, sort = TRUE) |> 
   slice_head(n = 15)
-quakersaints_long |> group_by(section_type) |> count(word, sort = TRUE) |>
-  mutate(proportion = n / sum(n)) |> select(-n) |>
-   pivot_wider(values_from = proportion, names_from = section_type) -> qs_props_section_type
+
+quakersaints_long |> 
+  group_by(section_type) |> 
+  count(word, sort = TRUE) |> 
+  mutate(proportion = n / sum(n)) |> 
+  select(-n) |> 
+  pivot_wider(names_from = section_type, values_from = proportion) -> qs_props_section_type
 ```
 
 ```{r}
@@ -256,71 +224,8 @@ ggplot(qs_props_section_type, aes(x = Epigraph, y = Story,
   labs(x = "Epigraph", y = "Story", title = "Word Distributions")
 ```
 
-```{r}
-quakersaints_long |> group_by(younger) |> count(word, sort = TRUE) |>
-  mutate(proportion = n / sum(n)) |> select(-n) |>
-   pivot_wider(values_from = proportion, names_from = younger) -> qs_props_younger
-
-
-ggplot(qs_props_younger, aes(x = `TRUE`, y = `FALSE`, 
-                      )) +
-  geom_abline(color = "gray40", lty = 2) +
-  geom_jitter(alpha = 0.1, size = 2.5, width = 0.3, height = 0.3) +
-  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
-  scale_x_log10(labels = percent_format()) +
-  scale_y_log10(labels = percent_format()) +
-  scale_color_gradient(limits = c(0, 0.001), 
-                       low = "darkslategray4", high = "gray75") +
-  theme(legend.position="none") +
-  labs(x = "Younger", y = "Older", title = "Word Distributions")
-```
-
-
-
-
-```{r }
-quakersaints_long |> group_by(title) |> count(word, sort = TRUE) |>
-  slice_head(n = 10) |> 
-   ungroup() |>
-  #mutate(word = reorder(word, n)) |>
-  
-  ggplot(aes( n, word)) +
-  geom_col() +
-  facet_wrap_paginate(~title, scales = "free_y", ncol =3) +
-  theme(strip.text = element_text(
-    size = 12, color = "dark green"))
-  
-```
 This is really smushed so I want to split it up and use a smaller 
-font.
-```{r }
-quakersaints_long |> group_by(title) |> count(word, sort = TRUE) |>
-  slice_head(n = 10) |>
- mutate(word = reorder(word, n)) |>
-  ungroup() -> preprocessed
-
-
-
-
-```
-
-```{r}
-  
-  preprocessed |>
-  filter(title %in% table_of_contents$text[c(4, 6, 8, 10, 12 , 14)]) |> 
-   ggplot(aes( n, reorder_within(word,n,  title))) +
-  geom_col() +
-  facet_wrap(~title, scales = "free_y", ncol =2) +
-  scale_y_reordered() +
-  theme(strip.text = element_text(
-    size = 9, color = "dark green"))
-
-
-  
-```
-
-
-We could do this multiple times by copy and pasting and modifying 
+font. We could do this multiple times by copy and pasting and modifying 
 the list of numbers. 
 
 This is not the best option because all that copy and pasting 
@@ -330,35 +235,32 @@ do it in one place.
 One solution, make a function.  In this case it will be a very
 specific function, not like one for use in other situations.
 
-```{r }
-# Chapters is a vector of the chapters to be graphed.
-make_faceted_title <- function(chapters ){
-     preprocessed |>
-      filter(title %in% table_of_contents$text[chapters]) |> 
-       ggplot(aes( n, reorder_within(word,n,  title))) +
-      geom_col() +
-      facet_wrap(~title, scales = "free_y", ncol =2) +
-      scale_y_reordered() +
-      theme(strip.text = element_text(
-        size = 9, color = "dark green"))
-}
-  
-```
-```{r}
-make_faceted_title(chapters = c(16, 18, 20, 22, 24, 26))
-make_faceted_title(seq(from = 28, to = 38, by = 2))
-make_faceted_title(seq(from = 40, to = 52, by = 2))
-make_faceted_title(seq(from = 54, to = 64, by = 2))
-make_faceted_title(seq(from = 66, to = 68, by = 2))
-```
 We could also make the function even more general by doing things
 like passing in the grouping variable and the name of the preprocessed
 data set.  We could even extract the grouping variable from the
 preprocessed data set.
 
-```{r}
-preprocessed |> group_by(title) |>
-group_vars()
+```{r }
+preprocessed <- quakersaints_long |> 
+  group_by(title) |> 
+  count(word, sort = TRUE) |> 
+  slice_head(n = 10) |> 
+  mutate(word = reorder(word, n)) |> 
+  ungroup()
+
+make_faceted_title <- function(chapters) {
+  preprocessed |> 
+    filter(title %in% table_of_contents$text[chapters]) |> 
+    ggplot(aes(n, reorder_within(word, n, title))) +
+    geom_col() +
+    facet_wrap(~title, scales = "free_y", ncol = 2) +
+    scale_y_reordered() +
+    theme(strip.text = element_text(size = 9, color = "dark green"))
+}
+
+make_faceted_title(seq(28, 38, 2))
+make_faceted_title(seq(40, 52, 2))
+make_faceted_title(seq(54, 64, 2))
 ```
 
 In class/at home: Clean up the document (get rid of unneeded code, make it flow
@@ -373,11 +275,6 @@ point.
 ```{r}
 save(quakersaints_trimmed, file = "data/quakersaints_trimmed.rda")
 save(quakersaints_long, file = "data/quakersaints_long.rda")
-
-```
-
-
-```{r}
 
 ```
 
