@@ -1,0 +1,55 @@
+---
+title: "Text Analysis of The Interpretation of Dreams"
+output: html_document
+date: "2025-03-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Introduction
+This project analyzes Freud’s "The Interpretation of Dreams" using text mining techniques. I will tokenize the text, clean it, and find the most frequent words.
+
+## 2. Libraries
+```{r load_libraries}
+library(gutenbergr)
+library(tidytext)
+#library(janeaustenr)
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+```
+
+## 3. Loading the Text
+```{r load_text}
+dreams_text <- readLines("https://www.gutenberg.org/cache/epub/66048/pg66048.txt", encoding = "UTF-8")
+dreams_df <- tibble(text = dreams_text)
+```
+
+## 4. Tokenization
+```{r tokenize}
+tidy_dreams <- dreams_df |> 
+  mutate(row = row_number()) |> 
+  unnest_tokens(word, text)
+
+View(tidy_dreams)
+```
+
+## 5. Removing Stop Words
+```{r remove_stopwords}
+tidy_dreams <- tidy_dreams |> 
+  anti_join(stop_words)
+
+View(tidy_dreams)
+```
+
+## 6. Word Frequency
+```{r word_count}
+tidy_dreams |> count(word, sort = TRUE)
+```
+
+## 7. Conclusion
+After cleaning the text, the most frequent words are "dream," "dreams," "psychic," "content," and "interpretation". Initially, common stop words like *the" and "of" dominated, but after removal, more meaningful terms emerged.
